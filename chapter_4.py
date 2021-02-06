@@ -36,11 +36,11 @@ def evaluate_action_monte_carlo(env, policy, episode_num=500000):
             q[state][action] += (g - q[state][action]) / c[state][action]
     return q
 
-policy = np.zeros((22, 11, 2, 2))
-policy[20:, :, :, 0] = 1
-policy[:20, :, :, 1] = 1
-q = evaluate_action_monte_carlo(env, policy)
-v = (q * policy).sum(axis=-1)
+# policy = np.zeros((22, 11, 2, 2))
+# policy[20:, :, :, 0] = 1
+# policy[:20, :, :, 1] = 1
+# q = evaluate_action_monte_carlo(env, policy)
+# v = (q * policy).sum(axis=-1)
 
 def plot(data):
     fig, axes = plt.subplots(1, 2, figsize=(9, 4))
@@ -55,4 +55,73 @@ def plot(data):
         axis.set_title(title)
     plt.show()
 
+# plot(v)
+
+def monte_carlo_with_exploring_start(env, episode_num=500000):
+    policy = np.zeros((22, 11, 2, 2))
+    policy[:, :, :, 1] = 1.
+    q = np.zeros_like(policy)
+    c = np.zeros_like(policy)
+    for _ in range(episode_num):
+        state = (np.random.randint(12, 22),
+                 np.random.randint(1, 11),
+                 np.random.randint(2))
+        action = np.random.randint(2)
+        env.reset()
+        if state[2:]:
+            env.player = [1, state[0] - 11]
+        else:
+            if state[0] == 21:
+                env.player = [10, 9, 2]
+            else:
+                env.player = [10, state[0] - 10]
+        env.dealer[0] = state[1]
+        state_actions = []
+        while True:
+            state_actions.append((state, action))
+            observation, reward, done, _ = env.step(action)
+            if done:
+                break
+            state = ob2state(observation)
+            action = np.random.choice(env.action_space.n, p=policy[state])
+        g = reward
+        for state, action in state_actions:
+            c[state][action] += 1.
+            q[state][action] += (g - q[state][action]) / c[state][action]
+            a = q[state].argmax()
+            policy[state] = 0.
+            policy[state][a] = 1.
+        return policy, q
+
+# policy, q = monte_carlo_with_exploring_start(env)
+# v = q.max(axis=-1)
+# plot(policy.argmax(-1));
+# plot(v)
+
+def monte_carlo_with_soft(env, episode_num=500000, epsilon=0.1):
+    policy = np.ones((22, 11, 2, 2)) * 0.5
+    q = np.zeros_like(policy)
+    c = np.zeros_like(policy)
+    for _ in range(episode_num):
+        state_actions = []
+        observation = env.reset()
+        while True:
+            state = ob2state(observation)
+            action = np.random.choice(env.action_space.n, p=policy[state])
+            state_actions.append((state, action))
+            observation, reward, done, _ = env.step(action)
+            if done:
+                break
+        g = reward
+        for state, action in state_actions:
+            c[state][action] += 1.
+            q[state][action] += (g - q[state][action]) / c[state][action]
+            a = q[state].argmax()
+            policy[state] = epsilon / 2.
+            policy[state][a] += (1. - epsilon)
+    return policy, q
+
+policy, q = monte_carlo_with_soft(env)
+v = q.max(axis=-1)
+plot(policy.argmax(-1))
 plot(v)
