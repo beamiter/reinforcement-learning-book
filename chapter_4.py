@@ -121,7 +121,75 @@ def monte_carlo_with_soft(env, episode_num=500000, epsilon=0.1):
             policy[state][a] += (1. - epsilon)
     return policy, q
 
-policy, q = monte_carlo_with_soft(env)
+#policy, q = monte_carlo_with_soft(env)
+#v = q.max(axis=-1)
+#plot(policy.argmax(-1))
+#plot(v)
+
+def evaluate_monte_carlo_importance_sampling(env, policy, behavior_policy,
+                                             episode_num=500000):
+    q = np.zeros_like(policy)
+    c = np.zeros_like(policy)
+    for _ in range(episode_num):
+        state_actions = []
+        observation = env.reset()
+        while True:
+            state = ob2state(observation)
+            action = np.random.choice(env.action_space.n,
+                                      p=behavior_policy[state])
+            state_actions.append((state, action))
+            observation, reward, done, _ = env.step(action)
+            if done:
+                break
+        g = reward
+        rho = 1.0
+        for state, action in reversed(state_actions):
+            c[state][action] += rho
+            q[state][action] += (rho / c[state][action] * (g - q[state][action]))
+            rho *= (policy[state][action] / behavior_policy[state][action])
+            if rho == 0:
+                break
+    return q
+
+#policy = np.zeros((22, 11, 2, 2))
+#policy[20:, :, :, 0] = 1
+#policy[:20, :, :, 1] = 1
+#behavior_policy = np.ones_like(policy) * 0.5
+#q = evaluate_monte_carlo_importance_sampling(env, policy, behavior_policy)
+#v = (q * policy).sum(axis=-1)
+#plot(v)
+
+def monte_carlo_importance_resample(env, episode_num=500000):
+    policy = np.zeros((22, 11, 2, 2))
+    policy[:, :, :, 0] = 1.
+    behavior_policy = np.ones_like(policy) * 0.5
+    q = np.zeros_like(policy)
+    c = np.zeros_like(policy)
+    for _ in range(episode_num):
+        state_actions = []
+        observation = env.reset()
+        while True:
+            state = ob2state(observation)
+            action = np.random.choice(env.action_space.n,
+                                      p=behavior_policy[state])
+            state_actions.append((state, action))
+            observation, reward, done, _ = env.step(action)
+            if done:
+                break
+        g = reward
+        rho = 1.
+        for state, action in reversed(state_actions):
+            c[state][action] += rho
+            q[state][action] += (rho / c[state][action] * (g - q[state][action]))
+            a = q[state].argmax()
+            policy[state] = 0.
+            policy[state][a] = 1.
+            if a != action:
+                break
+            rho /= behavior_policy[state][action]
+    return policy, q
+
+policy, q = monte_carlo_importance_resample(env)
 v = q.max(axis=-1)
-plot(policy.argmax(-1))
+plot(policy.argmax(-1));
 plot(v)
