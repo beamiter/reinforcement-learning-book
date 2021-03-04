@@ -1,3 +1,6 @@
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.initializers import glorot_uniform
 import chapter_5 as c5
 import gym
 import numpy as np
@@ -112,13 +115,13 @@ class SARSAAgent:
 
 agent = SARSAAgent(env)
 
-episodes = 300
-episode_rewards = []
-for episode in range(episodes):
-    episode_reward = c5.play_sarsa(env, agent, train=True)
-    episode_rewards.append(episode_reward)
-plt.plot(episode_rewards)
-plt.show()
+# episodes = 300
+# episode_rewards = []
+# for episode in range(episodes):
+# episode_reward = c5.play_sarsa(env, agent, train=True)
+# episode_rewards.append(episode_reward)
+# plt.plot(episode_rewards)
+# plt.show()
 
 
 class SARSALambdaAgent(SARSAAgent):
@@ -153,14 +156,14 @@ class SARSALambdaAgent(SARSAAgent):
             self.z = np.zeros_like(self.z)
 
 
-agent = SARSALambdaAgent(env)
-episodes = 300
-episode_rewards = []
-for episode in range(episodes):
-    episode_reward = c5.play_sarsa(env, agent, train=True)
-    episode_rewards.append(episode_plt)
-reward.plot(episode_rewards)
-plt.show()
+# agent = SARSALambdaAgent(env)
+# episodes = 300
+# episode_rewards = []
+# for episode in range(episodes):
+# episode_reward = c5.play_sarsa(env, agent, train=True)
+# episode_rewards.append(episode_reward)
+# plt.plot(episode_rewards)
+# plt.show()
 
 
 class DQNReplayer():
@@ -176,10 +179,136 @@ class DQNReplayer():
 
     def store(self, *args):
         self.memory.loc[self.i] = args
-        self.i = (self.i + i) % self.capicity
+        self.i = (self.i + 1) % self.capicity
         self.count = min(self.count + 1, self.capicity)
 
     def sample(self, size):
         indices = np.random.choice(self.count, size=size)
         return (np.stack(self.memory.loc[indices, field])
                 for field in self.memory.columns)
+
+
+class DQNAgent:
+    def __init__(self,
+                 env,
+                 net_kwargs={},
+                 gamma=0.99,
+                 epsilon=0.001,
+                 replayer_capacity=10000,
+                 batch_size=64):
+        observation_dim = env.observation_space.shape[0]
+        self.action_n = env.action_space.n
+        self.gamma = gamma
+        self.epsilon = epsilon
+
+        self.batch_size = batch_size
+        self.replayer = DQNReplayer(replayer_capacity)
+
+        self.evaluate_net = self.build_network(input_size=observation_dim,
+                                               output_size=self.action_n,
+                                               **net_kwargs)
+        self.target_net = self.build_network(input_size=observation_dim,
+                                             output_size=self.action_n,
+                                             **net_kwargs)
+
+        self.target_net.set_weights(self.evaluate_net.get_weights())
+
+    def build_network(self,
+                      input_size,
+                      hidden_sizes,
+                      output_size,
+                      activation=tf.nn.relu,
+                      output_activation=None,
+                      learning_rate=0.01):
+        model = keras.Sequential()
+        for layer, hidden_size in enumerate(hidden_sizes):
+            kwargs = dict(input_shape=(input_size, )) if not layer else {}
+            model.add(
+                keras.layers.Dense(units=hidden_size,
+                                   activation=activation,
+                                   kernel_initializer=glorot_uniform(seed=0),
+                                   **kwargs))
+        model.add(
+            keras.layers.Dense(units=output_size,
+                               activation=activation,
+                               kernel_initializer=glorot_uniform(seed=0)))
+        optimizer = keras.optimizers.Adam(lr=learning_rate)
+        model.compile(loss="mse", optimizer=optimizer)
+        return model
+
+    def learn(self, observation, action, reward, next_observation, done):
+        self.replayer.store(observation, action, reward, next_observation,
+                            done)
+
+        observations, actions, rewards, next_observation, dones = \
+            self.replayer.sample(self.batch_size)
+
+        next_qs = self.target_net.predict(next_observation)
+        next_max_qs = next_qs.max(axis=-1)
+        us = rewards + self.gamma * (1. - dones) * next_max_qs
+        targets = self.evaluate_net.predict(observations)
+        targets[np.arange(us.shape[0]), actions] = us
+        self.evaluate_net.fit(observations, targets, verbose=0)
+
+        if done:
+            self.target_net.set_weights(self.evaluate_net.get_weights())
+
+    def decide(self, observation):
+        if np.random.rand() < self.epsilon:
+            return np.random.randint(self.action_n)
+        qs = self.evaluate_net.predict(observation[np.newaxis])
+        return np.argmax(qs)
+
+
+net_kwargs = {
+    'hidden_sizes': [
+        64,
+    ],
+    'learning_rate': 0.01
+}
+agent = DQNAgent(env, net_kwargs=net_kwargs)
+
+episodes = 300
+episode_rewards = []
+for episode in range(episodes):
+    episode_reward = c5.play_qlearning(env, agent, train=True)
+    episode_rewards.append(episode_reward)
+plt.plot(episode_rewards)
+plt.show()
+
+
+class DoubleDQNAgent(DQNAgent):
+    def learn(self, observation, action, reward, next_observation, done):
+        self.replayer.store(observation, action, reward, next_observation,
+                            done)
+        observations, actions, rewards, next_observations, dones = \
+            self.replayer.sample(self.batch_size)
+        next_eval_qs = self.evaluate_net.predict(next_observations)
+        next_actions = next_eval_qs.argmax(axis=-1)
+        next_qs = self.target_net.predict(next_observations)
+        next_max_qs = next_qs[np.arange(next_qs.shape[0]), next_actions]
+        us = rewards + self.gamma * next_max_qs * (1. - dones)
+        targets = self.evaluate_net.predict(observations)
+        targets[np.arange(us.shape[0]), actions] = us
+        self.evaluate_net.fit(observations, targets, verbose=0)
+
+        if done:
+            self.target_net.set_weights(self.evaluate_net.get_weights())
+
+
+net_kwargs = {
+    'hidden_sizes': [
+        64,
+    ],
+    'learning_rate': 0.01
+}
+agent = DoubleDQNAgent(env, net_kwargs=net_kwargs)
+
+episodes = 300
+episode_rewards = []
+for episode in range(episodes):
+    episode_reward = c5.play_qlearning(env, agent, train=True)
+    episode_rewards.append(episode_reward)
+
+plt.plot(episode_rewards)
+plt.show()

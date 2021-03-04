@@ -182,9 +182,16 @@ agent = DoubleQlearningAgent(env)
 
 
 class SARSALambdaAgent(SARSAAgent):
-    def __init__(self, env, lambd=0.5, beta=1.,
-                 gamma=0.9, learning_rate=0.1, epsilon=.01):
-        super().__init__(env, gamma=gamma, learning_rate=learning_rate,
+    def __init__(self,
+                 env,
+                 lambd=0.5,
+                 beta=1.,
+                 gamma=0.9,
+                 learning_rate=0.1,
+                 epsilon=.01):
+        super().__init__(env,
+                         gamma=gamma,
+                         learning_rate=learning_rate,
                          epsilon=epsilon)
         self.lambd = lambd
         self.beta = beta
